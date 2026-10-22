@@ -60,11 +60,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: ${{ vars.NODE_VERSION || '22' }}
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: bash .github/pi-dependency-updater/scripts/install-deps.sh
 
       - name: Install pi
         run: npm install --global --ignore-scripts @earendil-works/pi-coding-agent
@@ -84,7 +83,7 @@ jobs:
           fi
 
       - name: Render pi prompt
-        run: node .github/scripts/render-prompt.mjs > "$RUNNER_TEMP/pi-prompt.md"
+        run: node .github/pi-dependency-updater/scripts/render-prompt.mjs > "$RUNNER_TEMP/pi-prompt.md"
 
       - name: Update dependencies with pi
         env:
@@ -117,19 +116,16 @@ jobs:
       - name: Enforce dependency policy
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: node .github/scripts/check-policy.mjs
+        run: node .github/pi-dependency-updater/scripts/check-policy.mjs
 
-      - name: Run tests
-        id: tests
+      - name: Run project checks
+        id: checks
         continue-on-error: true
         run: |
-          {
-            npm ci --no-audit --no-fund
-            npm test
-          } 2>&1 | tee "$TEST_OUTPUT_PATH"
+          bash .github/pi-dependency-updater/scripts/run-checks.sh 2>&1 | tee "$TEST_OUTPUT_PATH"
 
-      - name: Repair failing tests with pi
-        if: steps.tests.outcome == 'failure'
+      - name: Repair failing checks with pi
+        if: steps.checks.outcome == 'failure'
         env:
           MIXLAYER_API_KEY: ${{ secrets.MIXLAYER_API_KEY }}
           MIXLAYER_TRANSPORT: chat-completions
@@ -137,7 +133,7 @@ jobs:
           PI_TELEMETRY: "0"
           GIT_TERMINAL_PROMPT: "0"
         run: |
-          node .github/scripts/render-repair-prompt.mjs > "$RUNNER_TEMP/repair-prompt.md"
+          node .github/pi-dependency-updater/scripts/render-repair-prompt.mjs > "$RUNNER_TEMP/repair-prompt.md"
 
           pi \
             --no-session \
@@ -148,14 +144,13 @@ jobs:
             -p "$(cat "$RUNNER_TEMP/repair-prompt.md")" \
             2>&1 | tee -a "$RUNNER_TEMP/pi-output.log"
 
-      - name: Re-run policy check and tests
-        if: steps.tests.outcome == 'failure'
+      - name: Re-run policy check and project checks
+        if: steps.checks.outcome == 'failure'
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
-          node .github/scripts/check-policy.mjs
-          npm ci --no-audit --no-fund
-          npm test
+          node .github/pi-dependency-updater/scripts/check-policy.mjs
+          bash .github/pi-dependency-updater/scripts/run-checks.sh
 
       - name: Open pull request
         env:
@@ -172,7 +167,7 @@ jobs:
             exit 0
           fi
 
-          PROTECTED_CHANGES=$(git status --porcelain -- .github/workflows .github/prompts .github/scripts)
+          PROTECTED_CHANGES=$(git status --porcelain -- .github/workflows .github/pi-dependency-updater)
           if [ -n "$PROTECTED_CHANGES" ]; then
             echo "::error::pi modified protected automation files:"
             echo "$PROTECTED_CHANGES"
@@ -197,9 +192,9 @@ jobs:
             echo "Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
             echo "Policy: ignore major = \`$IGNORE_MAJOR\`, ignore packages = \`${IGNORE_PACKAGES:-none}\`, allow prerelease = \`$ALLOW_PRERELEASE\`."
-            if [ "${{ steps.tests.outcome }}" = "failure" ]; then
+            if [ "${{ steps.checks.outcome }}" = "failure" ]; then
               echo
-              echo "A pi test-repair pass ran after the initial test gate failed."
+              echo "A pi repair pass ran after the initial check gate failed."
             fi
             if [ -n "$EXTRA_RULES" ]; then
               echo

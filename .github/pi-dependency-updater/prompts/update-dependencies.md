@@ -30,8 +30,8 @@ Scan this Node.js project, update its npm dependencies according to the policy b
 1. Read `package.json`, `package-lock.json`, and `AGENTS.md` if present.
 2. Run `npm outdated --json || true` to collect current, wanted, and latest versions. Use `npm view <package> versions --json` if you need more detail.
 3. Build a plan for every direct dependency: update or skip. Apply the policy before installing anything.
-4. Apply the allowed updates. Keep the lockfile consistent. Do not run `npm audit fix --force`.
-5. Run `npm test`. Also run `npm run build` or `npm run lint` if those scripts exist.
+4. Apply the allowed updates. Use `npm ci` when `package-lock.json` or `npm-shrinkwrap.json` exists; otherwise use `npm install`. Keep the lockfile consistent. Do not run `npm audit fix --force`.
+5. Run the project checks with `bash .github/pi-dependency-updater/scripts/run-checks.sh`. It installs dependencies and runs `test`, `build`, and `lint` when those npm scripts exist. You can also run the underlying `npm` commands directly.
 6. If a check fails because of an update, diagnose the failure and fix it before opening a PR. Prefer minimal application-code changes or test-expectation updates for legitimate API changes. Do not delete tests, skip tests, or weaken assertions just to get a pass. Rerun the checks after each fix.
 7. If a failure is caused by a specific update and cannot be fixed within the scope of the dependency update, revert that package to its previous version and record it as skipped with the failure details. Continue with the remaining packages.
 8. Write the report to `{{DEPENDENCY_REPORT_PATH}}` in Markdown with exactly these sections:

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import semver from "semver";
 
 const DEPENDENCY_FIELDS = [
   "dependencies",
@@ -25,16 +24,21 @@ function readBasePackageJson() {
   }
 }
 
-function cleanVersion(range) {
+/**
+ * Minimal semver parser so this script has no dependency on the target repo's
+ * node_modules. It only needs the major number and prerelease marker.
+ */
+function parseVersion(range) {
   if (typeof range !== "string") return null;
 
-  const cleaned = range
-    .trim()
-    .replace(/^(?:[\^~]|>=?|<=?|=)?\s*/, "");
+  const match = range.match(/(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
+  if (!match) return null;
 
-  if (semver.valid(cleaned)) return cleaned;
-
-  return semver.coerce(cleaned)?.version ?? null;
+  return {
+    raw: match[0],
+    major: Number(match[1]),
+    prerelease: match[4] ?? null,
+  };
 }
 
 const before = readBasePackageJson();
@@ -75,20 +79,20 @@ for (const field of DEPENDENCY_FIELDS) {
       continue;
     }
 
-    const from = cleanVersion(beforeRange);
-    const to = cleanVersion(afterRange);
+    const from = parseVersion(beforeRange);
+    const to = parseVersion(afterRange);
 
-    if (!from || !to || from === to) continue;
+    if (!from || !to || from.raw === to.raw) continue;
 
-    if (!allowPrerelease && semver.prerelease(to)) {
+    if (!allowPrerelease && to.prerelease) {
       violations.push(
-        `${name}: prerelease ${to} is not allowed (was ${from})`,
+        `${name}: prerelease ${to.raw} is not allowed (was ${from.raw})`,
       );
     }
 
-    if (ignoreMajor && semver.major(to) !== semver.major(from)) {
+    if (ignoreMajor && to.major !== from.major) {
       violations.push(
-        `${name}: major update ${from} -> ${to} is not allowed (ignore_major=true)`,
+        `${name}: major update ${from.raw} -> ${to.raw} is not allowed (ignore_major=true)`,
       );
     }
   }

@@ -6,18 +6,18 @@ The action uses the [`pi-mixlayer`](https://www.npmjs.com/package/pi-mixlayer) p
 
 ## What the workflow does
 
-1. Checks out the repository and installs dependencies with `npm ci`.
+1. Checks out the repository and installs dependencies with `install-deps.sh` (`npm ci` when a lockfile exists, otherwise `npm install`).
 2. Installs the pi coding agent and loads the `pi-mixlayer` extension for one run.
-3. Renders a prompt from `.github/prompts/update-dependencies.md` using the workflow inputs.
+3. Renders a prompt from `.github/pi-dependency-updater/prompts/update-dependencies.md` using the workflow inputs.
 4. Runs pi in non-interactive mode with the `mixlayer` provider.
 5. Lets pi inspect `package.json` / `package-lock.json`, apply the dependency policy, fix any test failures caused by the updates, run tests, and write a Markdown report.
-6. Enforces the policy deterministically by comparing `package.json` against the base commit, then runs `npm ci` and `npm test` as a safety gate.
-7. If the test gate fails, runs a second pi repair pass with the captured test output and the report, then re-runs the policy check and tests. A failing test suite cannot produce a PR.
+6. Enforces the policy deterministically by comparing `package.json` against the base commit, then runs the project checks with `run-checks.sh` (`test`, plus `build`/`lint` when those scripts exist).
+7. If the check gate fails, runs a second pi repair pass with the captured test output and the report, then re-runs the policy check and checks. A failing test suite cannot produce a PR.
 8. Commits the changes to a new branch and opens a PR with the `gh` CLI. The PR body includes the report, including every skipped update and the reason.
 
 The workflow refuses to open a PR if pi committed changes, touched the protected automation files under `.github/`, or violated the dependency policy. In those cases the run fails and the report/logs are still uploaded.
 
-The prompt explicitly tells pi to repair failures caused by the dependency bump and rerun the checks. Reverting the update is only the fallback when the failure cannot be fixed within the scope of the dependency update. If the independent test gate still fails, the workflow runs a second pi pass using `.github/prompts/repair-tests.md` and the captured test output, then re-runs the gate.
+The prompt explicitly tells pi to repair failures caused by the dependency bump and rerun the checks. Reverting the update is only the fallback when the failure cannot be fixed within the scope of the dependency update. If the independent test gate still fails, the workflow runs a second pi pass using `.github/pi-dependency-updater/prompts/repair-tests.md` and the captured test output, then re-runs the gate.
 
 If there are no changes, the workflow exits without opening a PR. If the safety gate fails, no PR is opened and the pi logs/report are uploaded as a workflow artifact.
 
@@ -97,7 +97,7 @@ export ALLOW_PRERELEASE="false"
 export EXTRA_RULES=""
 export DEPENDENCY_REPORT_PATH="/tmp/dependency-report.md"
 
-node .github/scripts/render-prompt.mjs > /tmp/pi-prompt.md
+node .github/pi-dependency-updater/scripts/render-prompt.mjs > /tmp/pi-prompt.md
 
 pi \
   --no-session \
@@ -107,7 +107,8 @@ pi \
   --model "$MIXLAYER_MODEL" \
   -p "$(cat /tmp/pi-prompt.md)"
 
-node .github/scripts/check-policy.mjs
+bash .github/pi-dependency-updater/scripts/run-checks.sh
+node .github/pi-dependency-updater/scripts/check-policy.mjs
 cat /tmp/dependency-report.md
 ```
 
@@ -122,13 +123,17 @@ npm outdated --json || true
 ```
 .
 ├── .github/
-│   ├── prompts/
-│   │   ├── update-dependencies.md       # main dependency update prompt
-│   │   └── repair-tests.md              # second-pass test repair prompt
-│   ├── scripts/
-│   │   ├── check-policy.mjs             # deterministic policy enforcement
-│   │   ├── render-prompt.mjs            # fills in policy values
-│   │   └── render-repair-prompt.mjs     # fills in repair prompt values
+│   ├── pi-dependency-updater/
+│   │   ├── README.md                    # copy instructions for other repos
+│   │   ├── prompts/
+│   │   │   ├── update-dependencies.md   # main dependency update prompt
+│   │   │   └── repair-tests.md          # second-pass test repair prompt
+│   │   └── scripts/
+│   │       ├── check-policy.mjs         # deterministic policy enforcement
+│   │       ├── install-deps.sh          # npm ci/install helper
+│   │       ├── render-prompt.mjs        # fills in policy values
+│   │       ├── render-repair-prompt.mjs # fills in repair prompt values
+│   │       └── run-checks.sh            # install + test/build/lint helper
 │   └── workflows/update-dependencies.yml
 ├── src/
 │   ├── cli.js
@@ -139,6 +144,10 @@ npm outdated --json || true
 └── package-lock.json
 ```
 
+## Copying to another repo
+
+Everything the action needs lives under `.github/pi-dependency-updater/` plus `.github/workflows/update-dependencies.yml`. See [`.github/pi-dependency-updater/README.md`](.github/pi-dependency-updater/README.md) for copy-paste instructions and target-repo requirements.
+
 The sample pins deliberately older versions so the workflow has something to update:
 
 - `chalk@4.1.2` has a newer major release, so it is skipped by default when `ignore_major=true`.
@@ -147,8 +156,10 @@ The sample pins deliberately older versions so the workflow has something to upd
 ## Customizing
 
 - **Model**: set the `MIXLAYER_MODEL` repository variable or change the fallback in the workflow.
+- **Node version**: set the `NODE_VERSION` repository variable or edit the workflow. The default is `22`.
+- **Package manager**: edit `.github/pi-dependency-updater/scripts/install-deps.sh` and `run-checks.sh` for pnpm, Yarn, or custom commands.
 - **Schedule**: edit the `cron` expression in `.github/workflows/update-dependencies.yml`.
-- **Policy**: update the rules in `.github/prompts/update-dependencies.md`.
+- **Policy**: update the rules in `.github/pi-dependency-updater/prompts/update-dependencies.md`.
 - **PR flow**: the workflow uses `gh pr create`; replace it with an MCP-based PR tool if your environment provides one.
 
 ## Security notes
