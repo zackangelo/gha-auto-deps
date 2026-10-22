@@ -37,14 +37,12 @@ jobs:
     timeout-minutes: 30
 
     env:
-      DEPENDENCY_REPORT_PATH: ${{ runner.temp }}/dependency-report.md
       # `format()` keeps an explicit `false` from falling through to the default.
       IGNORE_MAJOR: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.ignore_major) || vars.IGNORE_MAJOR_UPDATES || 'true' }}
       IGNORE_PACKAGES: ${{ inputs.ignore_packages || vars.IGNORE_PACKAGES || '' }}
       ALLOW_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.allow_prerelease) || vars.ALLOW_PRERELEASE || 'false' }}
       EXTRA_RULES: ${{ inputs.extra_rules || vars.EXTRA_RULES || '' }}
       MIXLAYER_MODEL: ${{ vars.MIXLAYER_MODEL || 'deepseek/deepseek-v4.1-flash' }}
-      TEST_OUTPUT_PATH: ${{ runner.temp }}/test-output.log
 
     steps:
       - name: Check out repository
@@ -83,6 +81,8 @@ jobs:
           fi
 
       - name: Render pi prompt
+        env:
+          DEPENDENCY_REPORT_PATH: ${{ runner.temp }}/dependency-report.md
         run: node .github/pi-dependency-updater/scripts/render-prompt.mjs > "$RUNNER_TEMP/pi-prompt.md"
 
       - name: Update dependencies with pi
@@ -92,6 +92,7 @@ jobs:
           PI_SKIP_VERSION_CHECK: "1"
           PI_TELEMETRY: "0"
           GIT_TERMINAL_PROMPT: "0"
+          DEPENDENCY_REPORT_PATH: ${{ runner.temp }}/dependency-report.md
         run: |
           pi \
             --no-session \
@@ -104,6 +105,8 @@ jobs:
 
       - name: Ensure a report exists
         if: always()
+        env:
+          DEPENDENCY_REPORT_PATH: ${{ runner.temp }}/dependency-report.md
         run: |
           if [ ! -s "$DEPENDENCY_REPORT_PATH" ]; then
             {
@@ -121,6 +124,8 @@ jobs:
       - name: Run project checks
         id: checks
         continue-on-error: true
+        env:
+          TEST_OUTPUT_PATH: ${{ runner.temp }}/test-output.log
         run: |
           bash .github/pi-dependency-updater/scripts/run-checks.sh 2>&1 | tee "$TEST_OUTPUT_PATH"
 
@@ -132,6 +137,8 @@ jobs:
           PI_SKIP_VERSION_CHECK: "1"
           PI_TELEMETRY: "0"
           GIT_TERMINAL_PROMPT: "0"
+          DEPENDENCY_REPORT_PATH: ${{ runner.temp }}/dependency-report.md
+          TEST_OUTPUT_PATH: ${{ runner.temp }}/test-output.log
         run: |
           node .github/pi-dependency-updater/scripts/render-repair-prompt.mjs > "$RUNNER_TEMP/repair-prompt.md"
 
@@ -156,6 +163,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          DEPENDENCY_REPORT_PATH: ${{ runner.temp }}/dependency-report.md
         run: |
           if [ "$(git rev-parse HEAD)" != "$BASE_SHA" ]; then
             echo "::error::pi created commits. The workflow expects uncommitted changes."
