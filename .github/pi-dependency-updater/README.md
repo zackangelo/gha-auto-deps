@@ -43,7 +43,7 @@ The sample application in the rest of this repository is not required. `AGENTS.m
 
 ## Package manager detection
 
-The action detects the package manager from the first match:
+The action detects the package manager from the first match unless you set an explicit `PACKAGE_MANAGER` override:
 
 1. `packageManager` in `package.json` (for example `"pnpm@9.15.0"` or `"yarn@4.5.0"`).
 2. `pnpm-lock.yaml` → pnpm.

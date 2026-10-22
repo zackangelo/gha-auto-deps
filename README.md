@@ -23,7 +23,7 @@ If there are no changes, the workflow exits without opening a PR. If the safety 
 
 ## Package manager support
 
-The action does not assume npm. It detects the package manager from the first match:
+The action does not assume npm. Unless you set an explicit `PACKAGE_MANAGER` override, it detects the package manager from the first match:
 
 1. `packageManager` in `package.json` (for example `"pnpm@9.15.0"` or `"yarn@4.5.0"`).
 2. `pnpm-lock.yaml` → pnpm.
