@@ -1,0 +1,188 @@
+name: Update dependencies
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      ignore_major:
+        description: "Skip updates that cross a major version"
+        type: boolean
+        default: true
+      ignore_packages:
+        description: "Comma-separated npm packages to leave untouched"
+        type: string
+        default: ""
+      allow_prerelease:
+        description: "Allow prerelease versions"
+        type: boolean
+        default: false
+      extra_rules:
+        description: "Additional free-form dependency update rules"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependency-updates
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DEPENDENCY_REPORT_PATH: ${{ runner.temp }}/dependency-report.md
+      # `format()` keeps an explicit `false` from falling through to the default.
+      IGNORE_MAJOR: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.ignore_major) || vars.IGNORE_MAJOR_UPDATES || 'true' }}
+      IGNORE_PACKAGES: ${{ inputs.ignore_packages || vars.IGNORE_PACKAGES || '' }}
+      ALLOW_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.allow_prerelease) || vars.ALLOW_PRERELEASE || 'false' }}
+      EXTRA_RULES: ${{ inputs.extra_rules || vars.EXTRA_RULES || '' }}
+      MIXLAYER_MODEL: ${{ vars.MIXLAYER_MODEL || 'z-ai/glm-5.3' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Record base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install pi
+        run: npm install --global --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Validate Mixlayer configuration
+        env:
+          MIXLAYER_API_KEY: ${{ secrets.MIXLAYER_API_KEY }}
+        run: |
+          if [ -z "${MIXLAYER_API_KEY:-}" ]; then
+            echo "::error::The MIXLAYER_API_KEY repository secret is not set."
+            exit 1
+          fi
+
+          if [ -z "${MIXLAYER_MODEL:-}" ]; then
+            echo "::error::The MIXLAYER_MODEL repository variable is not set."
+            exit 1
+          fi
+
+      - name: Render pi prompt
+        run: node .github/scripts/render-prompt.mjs > "$RUNNER_TEMP/pi-prompt.md"
+
+      - name: Update dependencies with pi
+        env:
+          MIXLAYER_API_KEY: ${{ secrets.MIXLAYER_API_KEY }}
+          MIXLAYER_TRANSPORT: chat-completions
+          PI_SKIP_VERSION_CHECK: "1"
+          PI_TELEMETRY: "0"
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          pi \
+            --no-session \
+            --no-extensions \
+            -e npm:pi-mixlayer \
+            --provider mixlayer \
+            --model "$MIXLAYER_MODEL" \
+            -p "$(cat "$RUNNER_TEMP/pi-prompt.md")" \
+            2>&1 | tee "$RUNNER_TEMP/pi-output.log"
+
+      - name: Ensure a report exists
+        if: always()
+        run: |
+          if [ ! -s "$DEPENDENCY_REPORT_PATH" ]; then
+            {
+              echo "## Summary"
+              echo
+              echo "pi did not produce a dependency report. See the workflow log and artifact."
+            } > "$DEPENDENCY_REPORT_PATH"
+          fi
+
+      - name: Verify lockfile and tests
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          node .github/scripts/check-policy.mjs
+          npm ci --no-audit --no-fund
+          npm test
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$BASE_SHA" ]; then
+            echo "::error::pi created commits. The workflow expects uncommitted changes."
+            exit 1
+          fi
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No dependency changes to commit."
+            exit 0
+          fi
+
+          PROTECTED_CHANGES=$(git status --porcelain -- .github/workflows .github/prompts .github/scripts)
+          if [ -n "$PROTECTED_CHANGES" ]; then
+            echo "::error::pi modified protected automation files:"
+            echo "$PROTECTED_CHANGES"
+            exit 1
+          fi
+
+          BRANCH="chore/dependency-updates-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "chore(deps): update dependencies with pi"
+          git push --set-upstream origin "$BRANCH"
+
+          {
+            echo "## Automated dependency update"
+            echo
+            echo "This PR was generated by [pi](https://pi.dev) using the \`mixlayer\` provider and model \`$MIXLAYER_MODEL\`."
+            echo
+            echo "Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "Policy: ignore major = \`$IGNORE_MAJOR\`, ignore packages = \`${IGNORE_PACKAGES:-none}\`, allow prerelease = \`$ALLOW_PRERELEASE\`."
+            if [ -n "$EXTRA_RULES" ]; then
+              echo
+              echo "Additional rules: $EXTRA_RULES"
+            fi
+            echo
+            cat "$DEPENDENCY_REPORT_PATH"
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          gh pr create \
+            --base "${{ github.event.repository.default_branch }}" \
+            --head "$BRANCH" \
+            --title "chore(deps): automated dependency updates" \
+            --body-file "$RUNNER_TEMP/pr-body.md"
+
+      - name: Upload pi logs and report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-update-report
+          path: |
+            ${{ runner.temp }}/dependency-report.md
+            ${{ runner.temp }}/pi-output.log
+            ${{ runner.temp }}/pi-prompt.md
+          if-no-files-found: warn

@@ -1,0 +1,19 @@
+{
+  "name": "gha-auto-deps-sample",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sample Node.js project with a pi-powered GitHub Action that updates dependencies.",
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "chalk": "4.1.2",
+    "lodash": "4.17.20",
+    "semver": "7.5.2"
+  }
+}
