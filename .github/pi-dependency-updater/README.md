@@ -2,7 +2,7 @@
 
 Portable GitHub Action that uses the [pi coding agent](https://pi.dev) with the [`pi-mixlayer`](https://www.npmjs.com/package/pi-mixlayer) provider to:
 
-- scan a Node.js project for outdated npm dependencies
+- scan a Node.js project for outdated dependencies
 - apply a dependency policy such as "ignore major updates"
 - fix test/build/lint failures caused by the updates
 - run the project checks again before opening a PR
@@ -19,6 +19,7 @@ Everything the action needs lives in this folder plus one workflow file:
 │   └── scripts/
 │       ├── check-policy.mjs
 │       ├── install-deps.sh
+│       ├── package-manager.sh
 │       ├── render-prompt.mjs
 │       ├── render-repair-prompt.mjs
 │       └── run-checks.sh
@@ -31,14 +32,28 @@ The sample application in the rest of this repository is not required. `AGENTS.m
 ## Target repo requirements
 
 - A Node.js project with `package.json`.
-- An npm `test` script is strongly recommended. `build` and `lint` scripts are optional and run when present.
-- A lockfile is optional. The installer uses `npm ci` when `package-lock.json` or `npm-shrinkwrap.json` exists, otherwise it falls back to `npm install`.
+- A `test` script is strongly recommended. `build` and `lint` scripts are optional and run when present.
+- A lockfile is optional. The installer uses the matching frozen/immutable install when a lockfile exists, otherwise it falls back to the package manager's normal install command.
+- One of npm, pnpm, or Yarn. The package manager is auto-detected from `packageManager` in `package.json`, then the lockfile. npm is the fallback.
+- Corepack for pnpm or Yarn. Corepack is bundled with Node.js; the workflow uses Node 22 by default.
 - GitHub Actions enabled.
 - A repository secret named `MIXLAYER_API_KEY`.
 - A repository variable named `MIXLAYER_MODEL`, or edit the fallback in the workflow.
 - Workflow permissions for `contents: write` and `pull-requests: write`.
 
-The scripts are npm-based by default. For pnpm, Yarn, or custom commands, edit `scripts/install-deps.sh` and `scripts/run-checks.sh`, then update the prompt wording in `prompts/update-dependencies.md` and `prompts/repair-tests.md`.
+## Package manager detection
+
+The action detects the package manager from the first match:
+
+1. `packageManager` in `package.json` (for example `"pnpm@9.15.0"` or `"yarn@4.5.0"`).
+2. `pnpm-lock.yaml` → pnpm.
+3. `yarn.lock` → Yarn. Yarn Classic vs Berry is selected from `packageManager`, or from `.yarnrc.yml` / `.yarn/releases` when the field is absent.
+4. `package-lock.json` or `npm-shrinkwrap.json` → npm.
+5. Otherwise npm.
+
+The installer uses `npm ci`, `pnpm install --frozen-lockfile`, `yarn install --frozen-lockfile` for Yarn Classic, or `yarn install --immutable` for Yarn Berry when the matching lockfile exists. Without a lockfile it falls back to the manager's normal install command. The check runner uses the same manager for `test`, `build`, and `lint`.
+
+pnpm and Yarn are provisioned with Corepack. When `packageManager` pins a version, that version is used. You can override detection with the optional repository variables `PACKAGE_MANAGER` (`npm`, `pnpm`, or `yarn`) and `PACKAGE_MANAGER_VERSION` (a version or dist-tag such as `9.15.0`, `latest`, or `stable` for Yarn Berry).
 
 ## Copy into another repo
 
@@ -62,6 +77,10 @@ cd "$TARGET"
 
 gh secret set MIXLAYER_API_KEY
 gh variable set MIXLAYER_MODEL --body "deepseek/deepseek-v4.1-flash"
+
+# Optional: override package manager auto-detection.
+# gh variable set PACKAGE_MANAGER --body "pnpm"
+# gh variable set PACKAGE_MANAGER_VERSION --body "9.15.0"
 ```
 
 If the model is not set, the workflow falls back to `deepseek/deepseek-v4.1-flash`. To see models available to the Mixlayer provider:
@@ -129,14 +148,14 @@ It is self-contained and does not require `semver` in the target repo.
 - **Node version**: set the `NODE_VERSION` repository variable, or edit the workflow. The default is `22`.
 - **Schedule**: edit the `cron` expression in the workflow.
 - **Branch name and PR title**: edit the `BRANCH` and `gh pr create` lines in the workflow.
-- **Package manager**: edit `scripts/install-deps.sh` and `scripts/run-checks.sh`.
-- **npm caching**: add `cache: npm` to the `actions/setup-node` step if the target repo has a lockfile.
+- **Package manager**: auto-detected from `packageManager` or the lockfile. Set `PACKAGE_MANAGER` / `PACKAGE_MANAGER_VERSION` to override.
+- **Package manager caching**: add `cache: npm`, `cache: pnpm`, or `cache: yarn` to the `actions/setup-node` step if the target repo has the matching lockfile.
 - **Policy wording**: edit `prompts/update-dependencies.md`.
 - **Repair behavior**: edit `prompts/repair-tests.md`.
 
 ## How the workflow runs
 
-1. Installs dependencies with `scripts/install-deps.sh`.
+1. Detects the package manager and installs dependencies with `scripts/install-deps.sh`.
 2. Installs pi and loads `pi-mixlayer`.
 3. Renders `prompts/update-dependencies.md` with the selected policy.
 4. Runs pi non-interactively with the `mixlayer` provider.
@@ -158,9 +177,9 @@ A PR is never opened if the final policy check or checks fail.
 ## Troubleshooting
 
 - **Model not found**: set `MIXLAYER_MODEL` to a model returned by `pi --list-models mixlayer`.
-- **No tests ran**: add an npm `test` script. The check helper warns and continues when the script is missing.
-- **`npm ci` failed**: the lockfile is out of sync with `package.json`. The repair pass is instructed to fix this, or run `npm install` locally and commit the updated lockfile.
+- **No tests ran**: add a `test` script to `package.json`. The check helper warns and continues when the script is missing.
+- **Dependency install failed**: the lockfile is out of sync with `package.json`, or the package manager version does not match the lockfile. The repair pass is instructed to fix this, or run the install command locally and commit the updated lockfile.
 - **Workflow does not appear in Actions**: make sure `update-dependencies.yml` is under `.github/workflows/` on the default branch.
-- **PR creation fails**: confirm the workflow has `contents: write` and `pull-requests: write`, and that branch protection allows the bot to push a new branch.
+- **PR creation fails**: confirm the workflow has `contents: write` and `pull-requests: write`, that **Allow GitHub Actions to create and approve pull requests** is enabled, and that branch protection allows the bot to push a new branch.
 - **Tests need secrets or external services**: add the required environment variables to the workflow steps or to `scripts/run-checks.sh`. Do not put secrets in the prompt files.
-- **Using pnpm or Yarn**: replace the npm commands in `scripts/install-deps.sh` and `scripts/run-checks.sh`, and adjust the prompt wording.
+- **pnpm or Yarn not found**: make sure Corepack is available (`corepack --version`). The workflow uses Node 22, which bundles it. You can also set `PACKAGE_MANAGER` and `PACKAGE_MANAGER_VERSION` explicitly.

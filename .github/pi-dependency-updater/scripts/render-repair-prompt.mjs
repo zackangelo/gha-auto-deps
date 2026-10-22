@@ -11,6 +11,12 @@ const values = {
   DEPENDENCY_REPORT_PATH:
     process.env.DEPENDENCY_REPORT_PATH ?? "/tmp/dependency-report.md",
   GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "local",
+  PACKAGE_MANAGER: process.env.PACKAGE_MANAGER || "npm",
+  PACKAGE_MANAGER_LOCKFILE: process.env.PACKAGE_MANAGER_LOCKFILE || "none",
+  PACKAGE_MANAGER_CI_COMMAND:
+    process.env.PACKAGE_MANAGER_CI_COMMAND || "npm ci --no-audit --no-fund",
+  PACKAGE_MANAGER_INSTALL_COMMAND:
+    process.env.PACKAGE_MANAGER_INSTALL_COMMAND || "npm install --no-audit --no-fund",
   TEST_OUTPUT_PATH: process.env.TEST_OUTPUT_PATH ?? "/tmp/test-output.log",
 };
 

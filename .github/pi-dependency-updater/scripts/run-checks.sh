@@ -2,6 +2,15 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=package-manager.sh
+source "$script_dir/package-manager.sh"
+
+if [ ! -f package.json ]; then
+  echo "::error::No package.json found. The dependency updater expects a Node.js project."
+  exit 1
+fi
+
+pm_ensure
 bash "$script_dir/install-deps.sh"
 
 has_script() {
@@ -12,13 +21,13 @@ has_script() {
 }
 
 if has_script test; then
-  npm test
+  pm_run_script test
 else
-  echo "::warning::No npm test script found; skipping tests."
+  echo "::warning::No test script found; skipping tests."
 fi
 
 for script in build lint; do
   if has_script "$script"; then
-    npm run "$script"
+    pm_run_script "$script"
   fi
 done
