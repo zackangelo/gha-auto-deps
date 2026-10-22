@@ -44,6 +44,7 @@ jobs:
       ALLOW_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.allow_prerelease) || vars.ALLOW_PRERELEASE || 'false' }}
       EXTRA_RULES: ${{ inputs.extra_rules || vars.EXTRA_RULES || '' }}
       MIXLAYER_MODEL: ${{ vars.MIXLAYER_MODEL || 'z-ai/glm-5.3' }}
+      TEST_OUTPUT_PATH: ${{ runner.temp }}/test-output.log
 
     steps:
       - name: Check out repository
@@ -113,7 +114,42 @@ jobs:
             } > "$DEPENDENCY_REPORT_PATH"
           fi
 
-      - name: Verify lockfile and tests
+      - name: Enforce dependency policy
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: node .github/scripts/check-policy.mjs
+
+      - name: Run tests
+        id: tests
+        continue-on-error: true
+        run: |
+          {
+            npm ci --no-audit --no-fund
+            npm test
+          } 2>&1 | tee "$TEST_OUTPUT_PATH"
+
+      - name: Repair failing tests with pi
+        if: steps.tests.outcome == 'failure'
+        env:
+          MIXLAYER_API_KEY: ${{ secrets.MIXLAYER_API_KEY }}
+          MIXLAYER_TRANSPORT: chat-completions
+          PI_SKIP_VERSION_CHECK: "1"
+          PI_TELEMETRY: "0"
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          node .github/scripts/render-repair-prompt.mjs > "$RUNNER_TEMP/repair-prompt.md"
+
+          pi \
+            --no-session \
+            --no-extensions \
+            -e npm:pi-mixlayer \
+            --provider mixlayer \
+            --model "$MIXLAYER_MODEL" \
+            -p "$(cat "$RUNNER_TEMP/repair-prompt.md")" \
+            2>&1 | tee -a "$RUNNER_TEMP/pi-output.log"
+
+      - name: Re-run policy check and tests
+        if: steps.tests.outcome == 'failure'
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
@@ -161,6 +197,10 @@ jobs:
             echo "Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
             echo "Policy: ignore major = \`$IGNORE_MAJOR\`, ignore packages = \`${IGNORE_PACKAGES:-none}\`, allow prerelease = \`$ALLOW_PRERELEASE\`."
+            if [ "${{ steps.tests.outcome }}" = "failure" ]; then
+              echo
+              echo "A pi test-repair pass ran after the initial test gate failed."
+            fi
             if [ -n "$EXTRA_RULES" ]; then
               echo
               echo "Additional rules: $EXTRA_RULES"
@@ -185,4 +225,6 @@ jobs:
             ${{ runner.temp }}/dependency-report.md
             ${{ runner.temp }}/pi-output.log
             ${{ runner.temp }}/pi-prompt.md
+            ${{ runner.temp }}/repair-prompt.md
+            ${{ runner.temp }}/test-output.log
           if-no-files-found: warn

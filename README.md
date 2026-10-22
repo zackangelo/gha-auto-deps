@@ -10,11 +10,14 @@ The action uses the [`pi-mixlayer`](https://www.npmjs.com/package/pi-mixlayer) p
 2. Installs the pi coding agent and loads the `pi-mixlayer` extension for one run.
 3. Renders a prompt from `.github/prompts/update-dependencies.md` using the workflow inputs.
 4. Runs pi in non-interactive mode with the `mixlayer` provider.
-5. Lets pi inspect `package.json` / `package-lock.json`, apply the dependency policy, run tests, and write a Markdown report.
-6. Enforces the policy deterministically by comparing `package.json` against `HEAD`, then re-runs `npm ci` and `npm test` as a safety gate.
-7. Commits the changes to a new branch and opens a PR with the `gh` CLI. The PR body includes the report, including every skipped update and the reason.
+5. Lets pi inspect `package.json` / `package-lock.json`, apply the dependency policy, fix any test failures caused by the updates, run tests, and write a Markdown report.
+6. Enforces the policy deterministically by comparing `package.json` against the base commit, then runs `npm ci` and `npm test` as a safety gate.
+7. If the test gate fails, runs a second pi repair pass with the captured test output and the report, then re-runs the policy check and tests. A failing test suite cannot produce a PR.
+8. Commits the changes to a new branch and opens a PR with the `gh` CLI. The PR body includes the report, including every skipped update and the reason.
 
 The workflow refuses to open a PR if pi committed changes, touched the protected automation files under `.github/`, or violated the dependency policy. In those cases the run fails and the report/logs are still uploaded.
+
+The prompt explicitly tells pi to repair failures caused by the dependency bump and rerun the checks. Reverting the update is only the fallback when the failure cannot be fixed within the scope of the dependency update. If the independent test gate still fails, the workflow runs a second pi pass using `.github/prompts/repair-tests.md` and the captured test output, then re-runs the gate.
 
 If there are no changes, the workflow exits without opening a PR. If the safety gate fails, no PR is opened and the pi logs/report are uploaded as a workflow artifact.
 
@@ -119,10 +122,13 @@ npm outdated --json || true
 ```
 .
 ├── .github/
-│   ├── prompts/update-dependencies.md   # prompt template used by the action
+│   ├── prompts/
+│   │   ├── update-dependencies.md       # main dependency update prompt
+│   │   └── repair-tests.md              # second-pass test repair prompt
 │   ├── scripts/
 │   │   ├── check-policy.mjs             # deterministic policy enforcement
-│   │   └── render-prompt.mjs            # fills in policy values
+│   │   ├── render-prompt.mjs            # fills in policy values
+│   │   └── render-repair-prompt.mjs     # fills in repair prompt values
 │   └── workflows/update-dependencies.yml
 ├── src/
 │   ├── cli.js
