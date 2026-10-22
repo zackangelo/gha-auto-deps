@@ -55,6 +55,17 @@ permissions:
 
 If your organization restricts workflow permissions, make sure these are allowed under **Settings → Actions → General → Workflow permissions**.
 
+You must also enable **Allow GitHub Actions to create and approve pull requests**. The `pull-requests: write` permission alone is not enough; without this setting, the workflow fails at `gh pr create` with `GitHub Actions is not permitted to create or approve pull requests`.
+
+You can enable it from the UI or with the API:
+
+```bash
+gh api --method PUT repos/OWNER/REPO/actions/permissions/workflow \
+  --input - <<'JSON'
+{"default_workflow_permissions":"read","can_approve_pull_request_reviews":true}
+JSON
+```
+
 ## Running the workflow
 
 ### Manually

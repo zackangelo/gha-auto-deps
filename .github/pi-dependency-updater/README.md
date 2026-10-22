@@ -74,6 +74,16 @@ Enable workflow permissions under **Settings → Actions → General → Workflo
 
 - `contents: write`
 - `pull-requests: write`
+- **Allow GitHub Actions to create and approve pull requests**
+
+The last setting is required. Without it, `gh pr create` fails with `GitHub Actions is not permitted to create or approve pull requests`, even when `pull-requests: write` is granted in the workflow. You can enable it from the UI or with the API:
+
+```bash
+gh api --method PUT repos/OWNER/REPO/actions/permissions/workflow \
+  --input - <<'JSON'
+{"default_workflow_permissions":"read","can_approve_pull_request_reviews":true}
+JSON
+```
 
 Commit and push the copied files:
 
