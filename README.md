@@ -36,10 +36,10 @@ gh secret set MIXLAYER_API_KEY
 The workflow reads the model from the `MIXLAYER_MODEL` environment variable, which is populated from the repository variable `MIXLAYER_MODEL`.
 
 ```bash
-gh variable set MIXLAYER_MODEL --body "z-ai/glm-5.3"
+gh variable set MIXLAYER_MODEL --body "deepseek/deepseek-v4.1-flash"
 ```
 
-If the variable is not set, the workflow falls back to `z-ai/glm-5.3`. Change the default in `.github/workflows/update-dependencies.yml` if you prefer a different model.
+If the variable is not set, the workflow falls back to `deepseek/deepseek-v4.1-flash`. Change the default in `.github/workflows/update-dependencies.yml` if you prefer a different model.
 
 The API key is read by the `pi-mixlayer` extension from `MIXLAYER_API_KEY`; it is not passed on the command line.
 
@@ -88,7 +88,7 @@ npm ci
 npm test
 
 export MIXLAYER_API_KEY="sk_mxl_..."
-export MIXLAYER_MODEL="z-ai/glm-5.3"
+export MIXLAYER_MODEL="deepseek/deepseek-v4.1-flash"
 export MIXLAYER_TRANSPORT="chat-completions"
 
 export IGNORE_MAJOR="true"

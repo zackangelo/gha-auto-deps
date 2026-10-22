@@ -61,10 +61,10 @@ Then configure the target repo:
 cd "$TARGET"
 
 gh secret set MIXLAYER_API_KEY
-gh variable set MIXLAYER_MODEL --body "z-ai/glm-5.3"
+gh variable set MIXLAYER_MODEL --body "deepseek/deepseek-v4.1-flash"
 ```
 
-If the model is not set, the workflow falls back to `z-ai/glm-5.3`. To see models available to the Mixlayer provider:
+If the model is not set, the workflow falls back to `deepseek/deepseek-v4.1-flash`. To see models available to the Mixlayer provider:
 
 ```bash
 pi --no-session --no-extensions -e npm:pi-mixlayer --list-models mixlayer
